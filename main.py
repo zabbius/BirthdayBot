@@ -39,6 +39,7 @@ Messages = objdict({
     'CorrectAnswer': 'И это правильный ответ!',
     'WrongAnswer': 'Не понимаю, попробуй еще раз',
     'ReplyTask': 'Повторить задание',
+    'Back': 'Назад',
 })
 
 
@@ -117,6 +118,12 @@ class User:
         bot.send_message(self.id, Messages.EnterPin)
         return State.SELECT_TEAM
 
+    def __get_task_markup(self):
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        markup.add(types.KeyboardButton(Messages.ReplyTask))
+        markup.add(types.KeyboardButton(Messages.Back))
+        return markup
+
     def __handle_select_chain(self, input):
         assert self.team is not None
 
@@ -125,7 +132,7 @@ class User:
         if chain_index is not None:
             self.chain_index = chain_index
             bot.send_message(self.id, Messages.TaskNumber.format(self.chain_index))
-            bot.send_message(self.id, str(self.__get_task()))
+            bot.send_message(self.id, str(self.__get_task()), reply_markup=self.__get_task_markup())
             return State.ENTER_ANSWER
 
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -151,8 +158,11 @@ class User:
         task = self.__get_task()
 
         if input == Messages.ReplyTask:
-            bot.send_message(self.id, str(task))
+            bot.send_message(self.id, str(task), reply_markup=self.__get_task_markup())
             return State.ENTER_ANSWER
+
+        if input == Messages.Back:
+            return self.__handle_select_chain(None)
 
         # TODO: answer blacklist handling here
 
@@ -161,9 +171,7 @@ class User:
             self.team.progress[self.chain_index] += 1
             return self.__handle_enter_answer(Messages.ReplyTask)
 
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup.add(types.KeyboardButton(Messages.ReplyTask))
-        bot.send_message(self.id, Messages.WrongAnswer, reply_markup=markup)
+        bot.send_message(self.id, Messages.WrongAnswer, reply_markup=self.__get_task_markup())
         return State.ENTER_ANSWER
 
     def handle(self, message):
