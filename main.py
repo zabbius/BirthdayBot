@@ -3,43 +3,29 @@
 
 import json
 import telebot
+
 from telebot import types
 from asq import query
+from datetime import datetime
 
 from telebot_token import Token
 
+time_format = '%Y-%m-%dT%H:%M:%S'
 
-class objdict(dict):
-    def __getattr__(self, name):
-        if name in self:
-            return self[name]
-        else:
-            raise AttributeError("No such attribute: " + name)
-
-    def __setattr__(self, name, value):
-        self[name] = value
-
-    def __delattr__(self, name):
-        if name in self:
-            del self[name]
-        else:
-            raise AttributeError("No such attribute: " + name)
-
-
-Messages = objdict({
-    'Welcome': 'Добро пожаловать в команду {}',
-    'EnterPin': 'Введи пин-код команды',
-    'TaskNumber': 'Задание {}',
-    'SelectTask': 'Выберите задание',
-    'Word': 'Слово',
-    'WordNumber': 'Слово+Число',
-    'Number': 'Число',
-    'TaskDone': 'Вы полностью справились с заданием {}! Переходите к следующему заданию.',
-    'CorrectAnswer': 'И это правильный ответ!',
-    'WrongAnswer': 'Не понимаю, попробуй еще раз',
-    'ReplyTask': 'Повторить задание',
-    'Back': 'Назад',
-})
+class Messages:
+    Welcome = 'Добро пожаловать в команду {}'
+    EnterPin = 'Введи пин-код команды'
+    TaskNumber = 'Задание {}'
+    SelectTask = 'Выберите задание'
+    Word = 'Слово'
+    WordNumber = 'Слово+Число'
+    Number = 'Число'
+    TaskDone = 'Вы полностью справились с заданием {}! Переходите к следующему заданию.'
+    CorrectAnswer = 'И это правильный ответ!'
+    WrongAnswer = 'Не понимаю, попробуй еще раз'
+    ReplyTask = 'Повторить задание'
+    Back = 'Назад'
+    QuestComplete = 'Квест завершен успешно, время вашей команды: {}'
 
 
 class Task:
@@ -85,13 +71,13 @@ class Team:
         self.time_start = None
         self.time_end = None
         self.progress = [0] * len(task_chains)  # next task index for every chain
-        self.penalty = 0
 
 
 class State:
     SELECT_TEAM = 'select_team'
     SELECT_CHAIN = 'select_chain'
     ENTER_ANSWER = 'enter_answer'
+    QUEST_COMPLETE = 'quest_complete'
 
 
 class User:
@@ -134,12 +120,15 @@ class User:
             bot.send_message(self.id, str(self.__get_task()), reply_markup=self.__get_task_markup())
             return State.ENTER_ANSWER
 
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         chain_buttons = query(range(len(task_chains))
             ).where(lambda i: self.team.progress[i] < len(task_chains[i])
             ).select(lambda i: types.KeyboardButton(Messages.TaskNumber.format(i))
             ).to_list()
 
+        if len(chain_buttons) == 0:
+            return self.__handle_quest_complete()
+
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         markup.add(*chain_buttons)
         bot.send_message(self.id, Messages.SelectTask, reply_markup=markup)
         return State.SELECT_CHAIN
@@ -163,15 +152,22 @@ class User:
         if input == Messages.Back:
             return self.__handle_select_chain(None)
 
-        # TODO: answer blacklist handling here
-
         if input.lower() == task.answer.lower():
-            bot.send_message(self.id, Messages.CorectAnswer)
+            bot.send_message(self.id, Messages.CorrectAnswer)
             self.team.progress[self.chain_index] += 1
             return self.__handle_enter_answer(Messages.ReplyTask)
 
         bot.send_message(self.id, Messages.WrongAnswer, reply_markup=self.__get_task_markup())
         return State.ENTER_ANSWER
+
+    def __handle_quest_complete(self):
+        assert self.team is not None
+
+        if self.team.time_end is None:
+            self.team.time_end = datetime.now()
+
+        bot.send_message(self.id, Messages.QuestComplete.format(self.team.time_end - self.team.time_start))
+        return State.QUEST_COMPLETE
 
     def handle(self, message):
         assert message.chat.id == self.id
@@ -179,11 +175,17 @@ class User:
         if self.state == State.SELECT_TEAM:
             self.state = self.__handle_select_team(message.text)
 
+        elif self.state == State.QUEST_COMPLETE:
+            self.state = self.__handle_quest_complete()
+
         elif self.state == State.SELECT_CHAIN:
             self.state = self.__handle_select_chain(message.text)
 
         elif self.state == State.ENTER_ANSWER:
             self.state = self.__handle_enter_answer(message.text)
+
+        if self.state == State.ENTER_ANSWER and self.team.time_start is None:
+            self.team.time_start = datetime.now()
 
 
 state_file_name = './state.json'
@@ -201,15 +203,15 @@ users = {}
 
 try:
     state = None
+
     with open(state_file_name, 'r') as file:
         state = json.load(file)
 
     for state_team in state['teams']:
         team = Team(state_team['name'], state_team['pin'])
-        team.time_start = state_team['time_start']
-        team.time_end = state_team['time_end']
+        team.time_start = datetime.strptime(state_team['time_start'], time_format) if state_team['time_start'] is not None else None
+        team.time_end = datetime.strptime(state_team['time_end'], time_format) if state_team['time_end'] is not None else None
         team.progress = state_team['progress']
-        team.penalty = state_team['penalty']
 
         teams[team.pin] = team
 
@@ -221,7 +223,8 @@ try:
 
         users[user.id] = user
 
-except:
+except Exception as e:
+    print(e)
     teams = {team.pin: team for team in default_teams}
     users = {}
 
@@ -246,12 +249,20 @@ def handle_message(message):
     user.handle(message)
 
     store_teams = query(teams.values()
-        ).select(lambda t: {'name': t.name, 'time_start': t.time_start, 'time_end': t.time_end, 'progress': t.progress, 'penalty': t.penalty, 'pin': t.pin}
-        ).to_list()
+        ).select(lambda t: {
+            'name': t.name,
+            'time_start': t.time_start.strftime(time_format) if t.time_start is not None else None,
+            'time_end': t.time_end.strftime(time_format) if t.time_end is not None else None,
+            'progress': t.progress,
+            'pin': t.pin
+        }).to_list()
 
     store_users = query(users.values()
-        ).select(lambda u: {'id': u.id, 'team_pin': u.team.pin if u.team is not None else None, 'chain_index': u.chain_index, 'state': u.state}
-        ).to_list()
+        ).select(lambda u: {
+            'id': u.id,
+            'team_pin': u.team.pin if u.team is not None else None,
+            'chain_index': u.chain_index, 'state': u.state
+        }).to_list()
 
     state = {'teams': store_teams, 'users': store_users}
 
