@@ -5,7 +5,8 @@ import json
 import telebot
 from telebot import types
 from asq import query
-from enum import Enum
+
+from telebot_token import Token
 
 
 class objdict(dict):
@@ -24,8 +25,6 @@ class objdict(dict):
         else:
             raise AttributeError("No such attribute: " + name)
 
-
-token = "5767431881:AAFCQdWEeSt7XDLFv4_ReR1hDqrZdKL1jiE"
 
 Messages = objdict({
     'Welcome': 'Добро пожаловать в команду {}',
@@ -227,7 +226,7 @@ except:
     users = {}
 
 
-bot = telebot.TeleBot(token=token)
+bot = telebot.TeleBot(token=Token)
 
 
 @bot.message_handler(commands=['start'])
