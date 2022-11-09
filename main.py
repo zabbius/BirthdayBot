@@ -123,7 +123,7 @@ class User:
 
         chain_buttons = query(range(len(task_chains))
             ).where(lambda i: self.team.progress[i] < len(task_chains[i])
-            ).select(lambda i: types.KeyboardButton(Messages.TaskNumber.format(i))
+            ).select(lambda i: types.KeyboardButton(Messages.TaskNumber.format(i + 1))
             ).to_list()
 
         if len(chain_buttons) == 0:
