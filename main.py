@@ -12,6 +12,7 @@ from telebot_token import Token
 
 time_format = '%Y-%m-%dT%H:%M:%S'
 
+
 class Messages:
     Welcome = 'Добро пожаловать в команду {}'
     EnterPin = 'Введи пин-код команды'
@@ -29,11 +30,11 @@ class Messages:
 
 
 class Task:
-    def __init__(self, zone, text, format, answer):
+    def __init__(self, zone, text, format, *answers):
         self.zone = zone
         self.text = text
         self.format = format
-        self.answer = answer
+        self.answers = {a.lower() for a in answers}
 
     def __str__(self):
         return (
@@ -45,7 +46,7 @@ class Task:
 
 task_chains = [
     [
-        Task("zone1", "task_chain_1_1", Messages.Word, "answer_1_1"),
+        Task("zone1", "task_chain_1_1", Messages.Word, "answer_1_1", "1_1"),
         Task("zone3", "task_chain_1_2", Messages.Word, "answer_1_2"),
         Task("zone2", "task_chain_1_3", Messages.Word, "answer_1_3"),
     ],
@@ -152,7 +153,7 @@ class User:
         if input == Messages.Back:
             return self.__handle_select_chain(None)
 
-        if input.lower() == task.answer.lower():
+        if input.lower() in task.answers:
             bot.send_message(self.id, Messages.CorrectAnswer)
             self.team.progress[self.chain_index] += 1
             return self.__handle_enter_answer(Messages.ReplyTask)
